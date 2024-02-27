@@ -1,13 +1,14 @@
-// SPDX-License-Identifier: UNLICENSED
+// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
+/// @title EigenLayerBeaconOracle
+/// @author Succinct Labs
 contract EigenLayerBeaconOracle {
-    
     /// @notice The address of the beacon roots precompile.
     /// @dev https://eips.ethereum.org/EIPS/eip-4788
     address internal constant BEACON_ROOTS = 0x000F3df6D732807Ef1319fB7B8bB8522d0Beac02;
 
-    /// @notice The maximum number of slots to search through.
+    /// @notice The maximum number of slots to search through to handle skipped slots.
     /// @dev This is 1 day worth of slots.
     uint256 internal constant MAX_SLOT_ATTEMPTS = 7200;
 
@@ -17,6 +18,7 @@ contract EigenLayerBeaconOracle {
     /// @notice The genesis block timestamp.
     uint256 public immutable GENESIS_BLOCK_TIMESTAMP;
 
+    /// @notice The event emitted when a new block is added to the oracle.
     event EigenLayerBeaconOracleUpdate(uint256 slot, uint256 timestamp, bytes32 blockRoot);
 
     /// @notice Block timestamp does not correspond to a valid slot.
@@ -42,6 +44,7 @@ contract EigenLayerBeaconOracle {
         // Find the block root for the target timestamp.
         bytes32 blockRoot = findBlockRoot(uint64(slot));
 
+        // Add the block root to the mapping.
         timestampToBlockRoot[_targetTimestamp] = blockRoot;
 
         // Emit the event.
@@ -68,7 +71,6 @@ contract EigenLayerBeaconOracle {
             if (success && result.length > 0) {
                 return (abi.decode(result, (bytes32)));
             }
-
             currSlot++;
         }
 

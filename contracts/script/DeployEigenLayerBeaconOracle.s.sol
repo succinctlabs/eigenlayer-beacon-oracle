@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 import "forge-std/Script.sol";
 import "../src/EigenLayerBeaconOracle.sol";
 
