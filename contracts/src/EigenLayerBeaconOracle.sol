@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
+import {IBeaconChainOracle} from "./IBeaconChainOracle.sol";
+
 /// @title EigenLayerBeaconOracle
 /// @author Succinct Labs
-contract EigenLayerBeaconOracle {
+contract EigenLayerBeaconOracle is IBeaconChainOracle {
     /// @notice The address of the beacon roots precompile.
     /// @dev https://eips.ethereum.org/EIPS/eip-4788
     address internal constant BEACON_ROOTS = 0x000F3df6D732807Ef1319fB7B8bB8522d0Beac02;
@@ -12,7 +14,7 @@ contract EigenLayerBeaconOracle {
     /// @dev This is 1 day worth of slots.
     uint256 internal constant MAX_SLOT_ATTEMPTS = 7200;
 
-    /// @notice The block number to state root mapping.
+    /// @notice The timestamp to block root mapping.
     mapping(uint256 => bytes32) public timestampToBlockRoot;
 
     /// @notice The genesis block timestamp.
