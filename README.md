@@ -4,7 +4,7 @@ This repository contains the smart contract for the Eigenlayer Beacon Oracle. It
 
 ## Sepolia Deployment
 
-Currently, the Eigenlayer Beacon Oracle is deployed on Sepolia [here](https://sepolia.etherscan.io/address/0x2b3F237861C5e76e43e9a7a597a3a364d2D5C58e).
+Currently, the Eigenlayer Beacon Oracle is deployed on Sepolia [here](https://sepolia.etherscan.io/address/0x55bdc3ad6d69cf506b1d1dfa3ccb2a0b176c9bc1#events).
 
 ### Deploy
 
