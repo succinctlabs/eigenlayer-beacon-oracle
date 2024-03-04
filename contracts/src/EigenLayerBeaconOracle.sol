@@ -56,8 +56,7 @@ contract EigenLayerBeaconOracle is IBeaconChainOracle {
     /// @notice findBlockRoot takes a valid slot _targetSlot and returns the block root corresponding to _targetSlot.
     /// @param _targetSlot The slot to start searching from.
     /// @return blockRoot The beacon root of the first available slot found.
-    /// @dev BEACON_ROOTS returns a block root for a given parent block's timestamp, e.g. to get the block root for slot
-    ///      1000, you use the timestamp of block 1001.
+    /// @dev Given slot N+1's timestamp, BEACON_ROOTS returns the beacon block root corresponding to slot N.
     function findBlockRoot(uint64 _targetSlot)
         public
         view
