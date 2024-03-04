@@ -26,6 +26,9 @@ contract EigenLayerBeaconOracle is IBeaconChainOracle {
     /// @notice Block timestamp does not correspond to a valid slot.
     error InvalidBlockTimestamp();
 
+    /// @notice Timestamp out of range.
+    error TimestampOutOfRange();
+
     constructor(
         uint256 _genesisBlockTimestamp
     ) {
@@ -34,6 +37,11 @@ contract EigenLayerBeaconOracle is IBeaconChainOracle {
     }
 
     function addTimestamp(uint256 _targetTimestamp) external {
+        // If the block is more than 1 day old, revert.
+        if ((block.timestamp - _targetTimestamp) >= (MAX_SLOT_ATTEMPTS * 12)) {
+            revert TimestampOutOfRange();
+        }
+
         // If _targetTimestamp corresponds to slot n, then the block root for slot n - 1 is returned.
         (bool success, ) = BEACON_ROOTS.staticcall(abi.encode(_targetTimestamp));
 
