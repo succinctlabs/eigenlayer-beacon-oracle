@@ -14,6 +14,9 @@ contract EigenLayerBeaconOracle is IBeaconChainOracle {
     /// @dev This is 1 day worth of slots.
     uint256 internal constant MAX_SLOT_ATTEMPTS = 7200;
 
+    /// @notice The size of the beacon block root ring buffer.
+    uint256 internal constant BUFFER_LENGTH = 8191;
+
     /// @notice The timestamp to block root mapping.
     mapping(uint256 => bytes32) public timestampToBlockRoot;
 
@@ -26,6 +29,9 @@ contract EigenLayerBeaconOracle is IBeaconChainOracle {
     /// @notice Block timestamp does not correspond to a valid slot.
     error InvalidBlockTimestamp();
 
+    /// @notice Timestamp out of range.
+    error TimestampOutOfRange();
+
     constructor(
         uint256 _genesisBlockTimestamp
     ) {
@@ -34,6 +40,11 @@ contract EigenLayerBeaconOracle is IBeaconChainOracle {
     }
 
     function addTimestamp(uint256 _targetTimestamp) external {
+        // If the targetTimestamp is not guaranteed to be within the beacon block root ring buffer, revert.
+        if ((block.timestamp - _targetTimestamp) >= (BUFFER_LENGTH * 12)) {
+            revert TimestampOutOfRange();
+        }
+
         // If _targetTimestamp corresponds to slot n, then the block root for slot n - 1 is returned.
         (bool success, ) = BEACON_ROOTS.staticcall(abi.encode(_targetTimestamp));
 
