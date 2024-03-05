@@ -37,8 +37,8 @@ contract EigenLayerBeaconOracle is IBeaconChainOracle {
     }
 
     function addTimestamp(uint256 _targetTimestamp) external {
-        // If the block is more than 1 day old, revert.
-        if ((block.timestamp - _targetTimestamp) >= (MAX_SLOT_ATTEMPTS * 12)) {
+        // If the targetTimestamp is not guaranteed to be within the beacon block root ring buffer, revert.
+        if ((block.timestamp - _targetTimestamp) >= (8190 * 12)) {
             revert TimestampOutOfRange();
         }
 
