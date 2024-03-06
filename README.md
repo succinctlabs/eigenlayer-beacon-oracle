@@ -4,12 +4,12 @@ This repository contains the smart contract for the Eigenlayer Beacon Oracle. It
 
 ## Sepolia Deployment
 
-Currently, the Eigenlayer Beacon Oracle is deployed on Sepolia [here](https://sepolia.etherscan.io/address/0x55bdc3ad6d69cf506b1d1dfa3ccb2a0b176c9bc1#events).
+Currently, the Eigenlayer Beacon Oracle is deployed on Goerli [here](https://goerli.etherscan.io/address/0x0B3b61251e8373bFb183C8C5aA1ED5Ac45c19400#events).
 
 Ex.
 
-- Transaction: https://sepolia.etherscan.io/tx/0xb9c47b185c347a4f12b234c8efbb574a0d0d7333077d5c605b2b98266675112b#eventlog
-- Reference Slot: https://sepolia.beaconcha.in/slot/4467906
+- Transaction: https://goerli.etherscan.io/tx/0xe1189b57c2a12e3f224d169640c8f9cd8bd0d757d023b049bdfe790ab1cee08c#eventlog
+- Reference Slot: https://goerli.beaconcha.in/slot/7770895
 
 ## Contracts
 
