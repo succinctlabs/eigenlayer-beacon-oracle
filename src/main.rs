@@ -9,11 +9,42 @@ use ethers::{
 };
 use std::{env, str::FromStr, sync::Arc};
 
+/// Generates the contract bindings for the EigenlayerBeaconOracle contract.
 abigen!(
     EigenlayerBeaconOracle,
     "./abi/EigenlayerBeaconOracle.abi.json"
 );
 
+/// Asynchronously gets the latest block in the contract.
+async fn get_latest_block_in_contract(
+    latest_block: u64,
+    block_interval: u64,
+    rpc_url: String,
+    oracle_address_bytes: [u8; 20],
+) -> u64 {
+    let provider =
+        Provider::<Http>::try_from(rpc_url.clone()).expect("could not connect to client");
+    let contract = EigenlayerBeaconOracle::new(oracle_address_bytes, provider.clone());
+
+    for curr_block_number in
+        (latest_block - (latest_block % block_interval)..0).step_by(-(block_interval as usize))
+    {
+        let curr_block = provider.get_block(curr_block_number).await?;
+        let curr_block_timestamp = curr_block.unwrap().timestamp;
+        let curr_block_root = contract
+            .timestamp_to_block_root(curr_block_timestamp)
+            .call()
+            .await?;
+
+        if curr_block_root != [0u8; 32] {
+            return curr_block_number;
+        }
+    }
+
+    latest_block
+}
+
+/// The main function that runs the application.
 #[tokio::main]
 async fn main() -> Result<()> {
     dotenv::dotenv().ok();
@@ -43,31 +74,39 @@ async fn main() -> Result<()> {
 
         let contract = EigenlayerBeaconOracle::new(oracle_address_bytes, client.clone());
 
-        let block_number = client.get_block_number().await?;
+        let latest_block = get_latest_block_in_contract(
+            latest_block,
+            block_interval,
+            rpc_url,
+            oracle_address_bytes,
+        )
+        .await?;
 
-        // To avoid RPC stability issues, we use a block number 5 blocks behind the current block.
-        let safe_block_number = block_number - 5;
+        // Check if latest_block + block_interval is less than the current block number.
+        let curr_block_number = client.get_block_number().await?;
+        if latest_block + block_interval < curr_block_number - 5 {
+            // To avoid RPC stability issues, we use a block number 5 blocks behind the current block.
+            let interval_block_nb = latest_block + block_interval;
 
-        let interval_block_nb = safe_block_number - (safe_block_number % block_interval);
-
-        // Check if interval_block_nb is stored in the contract.
-        let interval_block = client.get_block(interval_block_nb).await?;
-        let interval_block_timestamp = interval_block.unwrap().timestamp;
-        let interval_beacon_block_root = contract
-            .timestamp_to_block_root(interval_block_timestamp)
-            .call()
-            .await?;
-
-        // If the interval block is not in the contract, store it.
-        if interval_beacon_block_root == [0; 32] {
-            let tx: Option<TransactionReceipt> = contract
-                .add_timestamp(interval_block_timestamp)
-                .send()
-                .await?
+            // Check if interval_block_nb is stored in the contract.
+            let interval_block = client.get_block(interval_block_nb).await?;
+            let interval_block_timestamp = interval_block.unwrap().timestamp;
+            let interval_beacon_block_root = contract
+                .timestamp_to_block_root(interval_block_timestamp)
+                .call()
                 .await?;
 
-            if let Some(tx) = tx {
-                println!("Transaction sent: {:?}", tx.transaction_hash);
+            // If the interval block is not in the contract, store it.
+            if interval_beacon_block_root == [0; 32] {
+                let tx: Option<TransactionReceipt> = contract
+                    .add_timestamp(interval_block_timestamp)
+                    .send()
+                    .await?
+                    .await?;
+
+                if let Some(tx) = tx {
+                    println!("Transaction sent: {:?}", tx.transaction_hash);
+                }
             }
         }
         // Sleep for 1 minute.
