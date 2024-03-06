@@ -9,11 +9,14 @@ use ethers::{
 };
 use std::{env, str::FromStr, sync::Arc};
 
-/// Generates the contract bindings for the EigenlayerBeaconOracle contract.
+// Generates the contract bindings for the EigenlayerBeaconOracle contract.
 abigen!(
     EigenlayerBeaconOracle,
     "./abi/EigenlayerBeaconOracle.abi.json"
 );
+
+// Maximum number of blocks to search backwards for (1 day of blocks).
+const MAX_DISTANCE_TO_FILL: u64 = 7200;
 
 /// Asynchronously gets the latest block in the contract.
 async fn get_latest_block_in_contract(
@@ -21,14 +24,16 @@ async fn get_latest_block_in_contract(
     block_interval: u64,
     rpc_url: String,
     oracle_address_bytes: [u8; 20],
-) -> u64 {
+) -> Result<u64> {
     let provider =
         Provider::<Http>::try_from(rpc_url.clone()).expect("could not connect to client");
-    let contract = EigenlayerBeaconOracle::new(oracle_address_bytes, provider.clone());
+    let contract = EigenlayerBeaconOracle::new(oracle_address_bytes, provider.clone().into());
 
-    for curr_block_number in
-        (latest_block - (latest_block % block_interval)..0).step_by(-(block_interval as usize))
-    {
+    let curr_block_number = latest_block - (latest_block % block_interval);
+    loop {
+        if curr_block_number < latest_block - MAX_DISTANCE_TO_FILL {
+            return Ok(curr_block_number);
+        }
         let curr_block = provider.get_block(curr_block_number).await?;
         let curr_block_timestamp = curr_block.unwrap().timestamp;
         let curr_block_root = contract
@@ -37,11 +42,9 @@ async fn get_latest_block_in_contract(
             .await?;
 
         if curr_block_root != [0u8; 32] {
-            return curr_block_number;
+            return Ok(curr_block_number);
         }
     }
-
-    latest_block
 }
 
 /// The main function that runs the application.
@@ -74,19 +77,34 @@ async fn main() -> Result<()> {
 
         let contract = EigenlayerBeaconOracle::new(oracle_address_bytes, client.clone());
 
-        let latest_block = get_latest_block_in_contract(
-            latest_block,
+        // Check if latest_block + block_interval is less than the current block number.
+        let latest_block = client.get_block_number().await?;
+        println!("latest block: {}", latest_block);
+
+        let latest_block_data = client.get_block(latest_block).await?;
+        println!("latest block data: {:?}", latest_block_data);
+
+        let contract_curr_block = get_latest_block_in_contract(
+            latest_block.as_u64(),
             block_interval,
-            rpc_url,
+            rpc_url.clone(),
             oracle_address_bytes,
         )
-        .await?;
+        .await
+        .unwrap();
 
-        // Check if latest_block + block_interval is less than the current block number.
-        let curr_block_number = client.get_block_number().await?;
-        if latest_block + block_interval < curr_block_number - 5 {
+        println!(
+            "Current latest block in the contract: {}",
+            contract_curr_block
+        );
+
+        println!("Latest block: {}", latest_block);
+
+        if contract_curr_block + block_interval < latest_block.as_u64() - 5 {
             // To avoid RPC stability issues, we use a block number 5 blocks behind the current block.
-            let interval_block_nb = latest_block + block_interval;
+            let interval_block_nb = contract_curr_block + block_interval;
+
+            println!("Interval block number: {}", interval_block_nb);
 
             // Check if interval_block_nb is stored in the contract.
             let interval_block = client.get_block(interval_block_nb).await?;
