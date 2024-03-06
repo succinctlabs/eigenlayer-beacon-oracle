@@ -29,7 +29,7 @@ async fn get_latest_block_in_contract(
         Provider::<Http>::try_from(rpc_url.clone()).expect("could not connect to client");
     let contract = EigenlayerBeaconOracle::new(oracle_address_bytes, provider.clone().into());
 
-    let curr_block_number = latest_block - (latest_block % block_interval);
+    let mut curr_block_number = latest_block - (latest_block % block_interval);
     loop {
         if curr_block_number < latest_block - MAX_DISTANCE_TO_FILL {
             return Ok(curr_block_number);
@@ -44,12 +44,13 @@ async fn get_latest_block_in_contract(
         if curr_block_root != [0u8; 32] {
             return Ok(curr_block_number);
         }
+        curr_block_number -= block_interval;
     }
 }
 
 /// The main function that runs the application.
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() -> Result<(), anyhow::Error> {
     dotenv::dotenv().ok();
 
     let block_interval = env::var("BLOCK_INTERVAL")?;
@@ -79,10 +80,6 @@ async fn main() -> Result<()> {
 
         // Check if latest_block + block_interval is less than the current block number.
         let latest_block = client.get_block_number().await?;
-        println!("latest block: {}", latest_block);
-
-        let latest_block_data = client.get_block(latest_block).await?;
-        println!("latest block data: {:?}", latest_block_data);
 
         let contract_curr_block = get_latest_block_in_contract(
             latest_block.as_u64(),
@@ -94,17 +91,17 @@ async fn main() -> Result<()> {
         .unwrap();
 
         println!(
-            "Current latest block in the contract: {}",
-            contract_curr_block
+            "The contract's current latest update is from block: {} and Goerli's latest block is: {}. Difference: {}",
+            contract_curr_block, latest_block, latest_block - contract_curr_block
         );
 
-        println!("Latest block: {}", latest_block);
-
+        // To avoid RPC stability issues, we use a block number 5 blocks behind the current block.
         if contract_curr_block + block_interval < latest_block.as_u64() - 5 {
-            // To avoid RPC stability issues, we use a block number 5 blocks behind the current block.
+            println!(
+                "Attempting to add timestamp of block {} to contract",
+                contract_curr_block + block_interval
+            );
             let interval_block_nb = contract_curr_block + block_interval;
-
-            println!("Interval block number: {}", interval_block_nb);
 
             // Check if interval_block_nb is stored in the contract.
             let interval_block = client.get_block(interval_block_nb).await?;
@@ -123,11 +120,14 @@ async fn main() -> Result<()> {
                     .await?;
 
                 if let Some(tx) = tx {
-                    println!("Transaction sent: {:?}", tx.transaction_hash);
+                    println!(
+                        "Added block {:?} to the contract! Transaction: {:?}",
+                        interval_block_nb, tx.transaction_hash
+                    );
                 }
             }
         }
         // Sleep for 1 minute.
-        let _ = tokio::time::sleep(tokio::time::Duration::from_secs((60) as u64)).await;
+        let _ = tokio::time::sleep(tokio::time::Duration::from_secs((5) as u64)).await;
     }
 }
