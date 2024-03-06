@@ -128,6 +128,6 @@ async fn main() -> Result<(), anyhow::Error> {
             }
         }
         // Sleep for 1 minute.
-        let _ = tokio::time::sleep(tokio::time::Duration::from_secs((5) as u64)).await;
+        let _ = tokio::time::sleep(tokio::time::Duration::from_secs((60) as u64)).await;
     }
 }
