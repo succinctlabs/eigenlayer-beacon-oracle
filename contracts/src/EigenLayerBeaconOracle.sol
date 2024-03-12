@@ -8,7 +8,8 @@ import {IBeaconChainOracle} from "./IBeaconChainOracle.sol";
 contract EigenLayerBeaconOracle is IBeaconChainOracle {
     /// @notice The address of the beacon roots precompile.
     /// @dev https://eips.ethereum.org/EIPS/eip-4788
-    address internal constant BEACON_ROOTS = 0x000F3df6D732807Ef1319fB7B8bB8522d0Beac02;
+    address internal constant BEACON_ROOTS =
+        0x000F3df6D732807Ef1319fB7B8bB8522d0Beac02;
 
     /// @notice The maximum number of slots to search through to handle skipped slots.
     /// @dev This is 1 day worth of slots.
@@ -24,7 +25,11 @@ contract EigenLayerBeaconOracle is IBeaconChainOracle {
     uint256 public immutable GENESIS_BLOCK_TIMESTAMP;
 
     /// @notice The event emitted when a new block is added to the oracle.
-    event EigenLayerBeaconOracleUpdate(uint256 slot, uint256 timestamp, bytes32 blockRoot);
+    event EigenLayerBeaconOracleUpdate(
+        uint256 slot,
+        uint256 timestamp,
+        bytes32 blockRoot
+    );
 
     /// @notice Block timestamp does not correspond to a valid slot.
     error InvalidBlockTimestamp();
@@ -32,9 +37,7 @@ contract EigenLayerBeaconOracle is IBeaconChainOracle {
     /// @notice Timestamp out of range.
     error TimestampOutOfRange();
 
-    constructor(
-        uint256 _genesisBlockTimestamp
-    ) {
+    constructor(uint256 _genesisBlockTimestamp) {
         // Set the genesis block timestamp.
         GENESIS_BLOCK_TIMESTAMP = _genesisBlockTimestamp;
     }
@@ -46,7 +49,9 @@ contract EigenLayerBeaconOracle is IBeaconChainOracle {
         }
 
         // If _targetTimestamp corresponds to slot n, then the block root for slot n - 1 is returned.
-        (bool success, ) = BEACON_ROOTS.staticcall(abi.encode(_targetTimestamp));
+        (bool success, ) = BEACON_ROOTS.staticcall(
+            abi.encode(_targetTimestamp)
+        );
 
         if (!success) {
             revert InvalidBlockTimestamp();
@@ -61,29 +66,32 @@ contract EigenLayerBeaconOracle is IBeaconChainOracle {
         timestampToBlockRoot[_targetTimestamp] = blockRoot;
 
         // Emit the event.
-        emit EigenLayerBeaconOracleUpdate(slot, _targetTimestamp, blockRoot); 
+        emit EigenLayerBeaconOracleUpdate(slot, _targetTimestamp, blockRoot);
     }
 
-    /// @notice findBlockRoot takes a valid slot _targetSlot and returns the block root corresponding to _targetSlot.
-    /// @param _targetSlot The slot to start searching from.
-    /// @return blockRoot The beacon root of the first available slot found.
-    /// @dev Given slot N+1's timestamp, BEACON_ROOTS returns the beacon block root corresponding to slot N.
-    function findBlockRoot(uint64 _targetSlot)
-        public
-        view
-        returns (bytes32 blockRoot)
-    {
-        uint64 currSlot = _targetSlot + 1;
-        bool success;
-        bytes memory result;
+    /// @notice Attempts to find the block root for the given slot.
+    /// @param _targetSlot The slot to get the block root for.
+    /// @return blockRoot The beacon block root of the given slot.
+    /// @dev BEACON_ROOTS returns a block root for a given parent block's timestamp. To get the block root for slot
+    ///      N, you use the timestamp of slot N+1. If N+1 is not avaliable, you use the timestamp of slot N+2, and
+    //       so on.
+    function findBlockRoot(
+        uint64 _targetSlot
+    ) public view returns (bytes32 blockRoot) {
+        uint256 currBlockTimestamp = GENESIS_BLOCK_TIMESTAMP +
+            ((_targetSlot + 1) * 12);
 
-        for (uint64 i = 0; i < MAX_SLOT_ATTEMPTS; i++) {
-            uint256 currTimestamp = GENESIS_BLOCK_TIMESTAMP + (currSlot * 12);
-            (success, result) = BEACON_ROOTS.staticcall(abi.encode(currTimestamp));
+        while (currBlockTimestamp <= block.timestamp) {
+            (bool success, bytes memory result) = BEACON_ROOTS.staticcall(
+                abi.encode(currBlockTimestamp)
+            );
             if (success && result.length > 0) {
-                return (abi.decode(result, (bytes32)));
+                return abi.decode(result, (bytes32));
             }
-            currSlot++;
+
+            unchecked {
+                currBlockTimestamp += 12;
+            }
         }
 
         revert("No available slot found");
