@@ -2,6 +2,7 @@ use dotenv::dotenv;
 use ethers::prelude::*;
 use std::env;
 
+// Compute the total cost (ETH) of relaying all transactions to CONTRACT_ADDRESS over the period [start_block, end_block].
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     dotenv().ok();
@@ -24,7 +25,10 @@ async fn main() -> anyhow::Result<()> {
     let start_block: U64 = U64::from(start_block_nb);
     let end_block: U64 = U64::from(end_block_nb);
 
-    let mut total_cost = U256::zero();
+    use std::fs::File;
+    use std::io::Write;
+
+    let mut transactions_data = Vec::new();
     let chunk_size = U64::from(1000);
     let mut from_block = start_block;
     while from_block < end_block {
@@ -39,33 +43,47 @@ async fn main() -> anyhow::Result<()> {
         let logs = client.get_logs(&filter).await?;
 
         for log in logs {
+            let tx_hash = log.transaction_hash.unwrap();
             let tx_origin = client
-                .get_transaction(log.transaction_hash.unwrap())
+                .get_transaction(tx_hash)
                 .await?
                 .expect("Transaction not found")
                 .from;
             if tx_origin == relayer_address {
                 // Assuming the log is from the relayer, compute the cost.
                 let tx_receipt = client
-                    .get_transaction_receipt(log.transaction_hash.unwrap())
+                    .get_transaction_receipt(tx_hash)
                     .await?
                     .expect("Transaction receipt not found");
                 let tx_cost = tx_receipt.gas_used.expect("Gas used not available")
                     * tx_receipt
                         .effective_gas_price
                         .expect("Effective gas price not available");
-                total_cost += tx_cost;
+                transactions_data.push((tx_cost, tx_hash, log.block_number.unwrap()));
             }
         }
         // Move to the next chunk.
         from_block += chunk_size + U64::one();
     }
 
-    // Convert the total cost to ETH.
-    let eth_total_cost = ethers::utils::format_units(total_cost, 18)?;
+    // Write transactions data to a CSV file
+    let file_name = format!("cost_{}_{}.csv", start_block, end_block);
+    let mut wtr = File::create(&file_name)?;
+    writeln!(wtr, "cost_eth,tx_hash,block_no")?;
+    let mut eth_total_cost = U256::zero();
+    for (cost, tx_hash, block_no) in &transactions_data {
+        eth_total_cost += *cost;
+        let cost_in_eth = ethers::utils::format_units(*cost, 18)?;
+        writeln!(wtr, "{},{},{}", cost_in_eth, tx_hash, block_no)?;
+    }
+
+    // Convert the total cost to ETH
+    let eth_total_cost = ethers::utils::format_units(eth_total_cost, 18)?;
+
+    // Convert the total cost to ETH and print it along with the CSV file name.
     println!(
-        "Total cost in ETH for transactions from RELAYER_ADDRESS over the past month: {}",
-        eth_total_cost
+        "Total cost in ETH for transactions from RELAYER_ADDRESS over the period: {}, Data written to {}",
+        eth_total_cost, file_name
     );
 
     Ok(())
