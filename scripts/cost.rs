@@ -2,7 +2,7 @@ use dotenv::dotenv;
 use ethers::prelude::*;
 use std::env;
 
-// Compute the total cost (ETH) of relaying all transactions to CONTRACT_ADDRESS over the period [start_block, end_block].
+// Compute the total cost (ETH) of relaying all EigenlayerBeaconOracle to CONTRACT_ADDRESS over the period [start_block, end_block].
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     dotenv().ok();
