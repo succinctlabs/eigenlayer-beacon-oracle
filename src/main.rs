@@ -1,10 +1,9 @@
-use alloy_sol_types::{sol, SolType};
 use anyhow::Result;
 use ethers::{
     contract::abigen,
     middleware::SignerMiddleware,
     providers::{Http, Middleware, Provider},
-    types::{Address, Filter, TransactionReceipt, U256, U64},
+    types::{Address, TransactionReceipt, U64},
     utils::hex,
 };
 use ethers_aws::aws_signer::AWSSigner;
@@ -20,63 +19,64 @@ abigen!(
 // Maximum number of blocks to search backwards for (1 day of blocks).
 const MAX_DISTANCE_TO_FILL: u64 = 8191;
 
-type EigenLayerBeaconOracleUpdate = sol! { tuple(uint256, uint256, bytes32) };
-
 /// Asynchronously gets the block of the latest update to the contract.
 /// Find the most recent log, get the slot, and then get the block number from the slot.
 async fn get_latest_block_in_contract(
     rpc_url: String,
     oracle_address_bytes: Address,
-) -> Result<u64> {
+    block_interval: u64,
+) -> Option<u64> {
     let provider =
         Provider::<Http>::try_from(rpc_url.clone()).expect("could not connect to client");
-    let latest_block = provider.get_block_number().await?;
+    let latest_block = provider.get_block_number().await.unwrap();
 
-    let mut curr_block = latest_block;
-    while curr_block > latest_block - MAX_DISTANCE_TO_FILL {
-        let range_start_block = std::cmp::max(curr_block - MAX_DISTANCE_TO_FILL, curr_block - 500);
-        // Filter for the events in chunks.
-        let filter = Filter::new()
-            .from_block(range_start_block)
-            .to_block(curr_block)
-            .address(vec![oracle_address_bytes])
-            .event("EigenLayerBeaconOracleUpdate(uint256,uint256,bytes32)");
+    let contract = EigenlayerBeaconOracle::new(oracle_address_bytes, provider.clone().into());
 
-        let logs = provider.get_logs(&filter).await?;
+    // Query backwards over MAX_DISTANCE_TO_FILL blocks to find the most recent update. Find the most recent update which is
+    // a multiple of block_interval.
+    let mut curr_block_nb = latest_block - (latest_block % block_interval);
+    while curr_block_nb > latest_block - MAX_DISTANCE_TO_FILL {
+        // Get timestamp of the block.
+        let interval_block = provider.get_block(curr_block_nb).await.unwrap();
+        let interval_block_timestamp = interval_block.unwrap().timestamp;
+        let interval_beacon_block_root = contract
+            .timestamp_to_block_root(interval_block_timestamp)
+            .call()
+            .await
+            .unwrap();
 
-        // Get the most recent log from the logs (if any).
-        let most_recent_log = logs.iter().max_by_key(|log| log.block_number);
-        if let Some(most_recent_log) = most_recent_log {
-            let log_bytes = &most_recent_log.data.0;
-            let decoded = EigenLayerBeaconOracleUpdate::abi_decode(&log_bytes, true).unwrap();
-
-            let slot: U256 = U256::from_little_endian(&decoded.0.as_le_bytes());
-
-            let consensus_rpc_url = env::var("CONSENSUS_RPC")?;
-            let response = reqwest::get(format!(
-                "{}/eth/v1/beacon/blocks/{}",
-                consensus_rpc_url,
-                slot.as_u64()
-            ))
-            .await?;
-
-            // Get the execution block number for a specific slot.
-            let json: serde_json::Value = serde_json::from_str(&response.text().await?).unwrap();
-            let block_number = json["data"]["message"]["body"]["execution_payload"]["block_number"]
-                .as_str()
-                .unwrap_or("0")
-                .parse::<u64>()
-                .unwrap();
-
-            return Ok(block_number);
+        // If the interval block is in the contract, return it.
+        if interval_beacon_block_root != [0; 32] {
+            return Some(curr_block_nb.as_u64());
         }
-
-        curr_block -= U64::from(500u64);
+        curr_block_nb -= U64::from(block_interval);
     }
 
-    Err(anyhow::Error::msg(
-        "Could not find the latest block in the contract",
-    ))
+    None
+}
+
+fn get_block_to_request(
+    contract_curr_block: Option<u64>,
+    block_interval: u64,
+    latest_block: u64,
+) -> u64 {
+    // If the contract's current block is None, we need to start from the latest block - block_interval.
+    if contract_curr_block.is_none() {
+        let default_start_block = latest_block - (latest_block % block_interval);
+        debug!(
+            "Contract has not been updated in {} blocks. Requesting timestamp for block: {}",
+            MAX_DISTANCE_TO_FILL, default_start_block
+        );
+        return default_start_block;
+    } else {
+        let block_to_request = contract_curr_block.unwrap() + block_interval;
+        debug!(
+            "Contract's current block is {}. Requesting timestamp for block: {}",
+            contract_curr_block.unwrap(),
+            block_to_request
+        );
+        return block_to_request;
+    }
 }
 
 async fn create_aws_signer() -> AWSSigner {
@@ -96,7 +96,6 @@ async fn create_aws_signer() -> AWSSigner {
 /// The operator for the EigenlayerBeaconOracle contract.
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
-    env::set_var("RUST_LOG", "debug");
     dotenv::dotenv().ok();
     env_logger::init();
 
@@ -121,26 +120,19 @@ async fn main() -> Result<(), anyhow::Error> {
 
         let latest_block = client.get_block_number().await?;
 
-        // If this is the first time the operator is running, we need to start from the latest_block - block_interval.
-        let default_start_block = latest_block.as_u64() - (block_interval * 2);
+        // Get the block of the most recent update to the contract. This will always be a multiple of block_interval.
+        let contract_curr_block = get_latest_block_in_contract(
+            rpc_url.clone(),
+            Address::from(oracle_address_bytes),
+            block_interval,
+        )
+        .await;
 
-        // Get the block of the most recent update to the contract.
-        let contract_curr_block =
-            get_latest_block_in_contract(rpc_url.clone(), Address::from(oracle_address_bytes))
-                .await
-                .unwrap_or(default_start_block);
-
-        debug!(
-            "The contract's current latest update is from block: {} and the chain's latest block is: {}. Difference: {}",
-            contract_curr_block, latest_block, latest_block - contract_curr_block
-        );
-
-        // Get contract_curr_block + block_interval - (contract_curr_block % block_interval)
         let block_nb_to_request =
-            contract_curr_block + block_interval - (contract_curr_block % block_interval);
+            get_block_to_request(contract_curr_block, block_interval, latest_block.as_u64());
 
-        // To avoid RPC stability issues, we use a block number 5 blocks behind the current block.
-        if block_nb_to_request < latest_block.as_u64() - 5 {
+        // To avoid RPC stability issues, we use a block number 1 block behind the current block.
+        if block_nb_to_request < latest_block.as_u64() - 1 {
             debug!(
                 "Attempting to add timestamp of block {} to contract",
                 block_nb_to_request
@@ -180,6 +172,6 @@ async fn main() -> Result<(), anyhow::Error> {
         }
         debug!("Sleeping for 1 minute");
         // Sleep for 1 minute.
-        let _ = tokio::time::sleep(tokio::time::Duration::from_secs((60) as u64)).await;
+        let _ = tokio::time::sleep(tokio::time::Duration::from_secs((300) as u64)).await;
     }
 }
