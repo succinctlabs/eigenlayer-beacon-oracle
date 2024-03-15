@@ -42,7 +42,8 @@ async fn get_latest_block_in_contract(
             .event("EigenLayerBeaconOracleUpdate(uint256,uint256,bytes32)");
 
         let logs = provider.get_logs(&filter).await?;
-        // Return the most recent block number from the logs (if any).
+
+        // Get the most recent log from the logs (if any).
         let most_recent_log = logs.iter().max_by_key(|log| log.block_number);
         if let Some(most_recent_log) = most_recent_log {
             let log_bytes = &most_recent_log.data.0;
