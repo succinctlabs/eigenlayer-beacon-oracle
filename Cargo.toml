@@ -8,3 +8,9 @@ anyhow = "1.0.80"
 tokio = { version = "1", features = ["full"] }
 dotenv = "0.15.0"
 ethers = "2.0.13"
+reqwest = "0.11.26"
+clap = "4.4.9"
+serde_json = "1.0.114"
+ethers-signers = { version = "2.0.14", features = ["aws"] }
+rusoto_core = "0.48.0"
+rusoto_kms = "0.48.0"

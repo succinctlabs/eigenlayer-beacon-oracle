@@ -3,10 +3,12 @@ use ethers::{
     contract::abigen,
     middleware::SignerMiddleware,
     providers::{Http, Middleware, Provider},
-    signers::{LocalWallet, Signer},
-    types::TransactionReceipt,
+    signers::{AwsSigner, LocalWallet, Signer},
+    types::{Address, Filter, TransactionReceipt, U64},
     utils::hex,
 };
+use rusoto_core::Client;
+use rusoto_kms::{Kms, KmsClient};
 use std::{env, str::FromStr, sync::Arc};
 
 // Generates the contract bindings for the EigenlayerBeaconOracle contract.
@@ -16,36 +18,41 @@ abigen!(
 );
 
 // Maximum number of blocks to search backwards for (1 day of blocks).
-const MAX_DISTANCE_TO_FILL: u64 = 7200;
+const MAX_DISTANCE_TO_FILL: u64 = 8191;
 
 /// Asynchronously gets the latest block in the contract.
 async fn get_latest_block_in_contract(
-    latest_block: u64,
     block_interval: u64,
     rpc_url: String,
-    oracle_address_bytes: [u8; 20],
+    oracle_address_bytes: Address,
 ) -> Result<u64> {
     let provider =
         Provider::<Http>::try_from(rpc_url.clone()).expect("could not connect to client");
-    let contract = EigenlayerBeaconOracle::new(oracle_address_bytes, provider.clone().into());
 
-    let mut curr_block_number = latest_block - (latest_block % block_interval);
-    loop {
-        if curr_block_number < latest_block - MAX_DISTANCE_TO_FILL {
-            return Ok(curr_block_number);
-        }
-        let curr_block = provider.get_block(curr_block_number).await?;
-        let curr_block_timestamp = curr_block.unwrap().timestamp;
-        let curr_block_root = contract
-            .timestamp_to_block_root(curr_block_timestamp)
-            .call()
-            .await?;
+    let latest_block = provider.get_block_number().await?;
 
-        if curr_block_root != [0u8; 32] {
-            return Ok(curr_block_number);
+    let mut curr_block = latest_block;
+    while curr_block > curr_block - MAX_DISTANCE_TO_FILL {
+        let range_start_block = std::cmp::max(curr_block - MAX_DISTANCE_TO_FILL, curr_block - 500);
+        // Filter for the events in chunks.
+        let filter = Filter::new()
+            .from_block(range_start_block)
+            .to_block(curr_block)
+            .address(vec![oracle_address_bytes])
+            .event("EigenLayerBeaconOracleUpdate(uint256,uint256,bytes32)");
+
+        let logs = provider.get_logs(&filter).await?;
+        // Return the most recent block number from the logs (if any).
+        if logs.len() > 0 {
+            return Ok(logs[0].block_number.unwrap().as_u64());
         }
-        curr_block_number -= block_interval;
+
+        curr_block -= U64::from(500u64);
     }
+
+    Err(anyhow::Error::msg(
+        "Could not find the latest block in the contract",
+    ))
 }
 
 /// The main function that runs the application.
@@ -58,9 +65,6 @@ async fn main() -> Result<(), anyhow::Error> {
 
     let rpc_url = env::var("RPC_URL")?;
 
-    let private_key = Some(env::var("PRIVATE_KEY").expect("PRIVATE_KEY must be set"));
-    let wallet = LocalWallet::from_str(private_key.as_ref().unwrap()).expect("invalid private key");
-
     let chain_id = env::var("CHAIN_ID")?;
     let chain_id = u64::from_str(&chain_id)?;
 
@@ -69,6 +73,13 @@ async fn main() -> Result<(), anyhow::Error> {
 
     loop {
         // Replace with your Ethereum node's HTTP endpoint
+        let client = Client::new_with(EnvironmentProvider::default(), HttpClient::new().unwrap());
+        let kms_client = KmsClient::new_with_client(client, Region::UsWest1);
+        let key_id = "...";
+        let chain_id = 1;
+
+        let signer = AwsSigner::new(kms_client, key_id, chain_id).await?;
+
         let provider =
             Provider::<Http>::try_from(rpc_url.clone()).expect("could not connect to client");
 
@@ -82,10 +93,9 @@ async fn main() -> Result<(), anyhow::Error> {
         let latest_block = client.get_block_number().await?;
 
         let contract_curr_block = get_latest_block_in_contract(
-            latest_block.as_u64(),
             block_interval,
             rpc_url.clone(),
-            oracle_address_bytes,
+            Address::from(oracle_address_bytes),
         )
         .await
         .unwrap();
