@@ -22,7 +22,8 @@ const MAX_DISTANCE_TO_FILL: u64 = 8191;
 
 type EigenLayerBeaconOracleUpdate = sol! { tuple(uint256, uint256, bytes32) };
 
-/// Asynchronously gets the latest block in the contract.
+/// Asynchronously gets the block of the latest update to the contract.
+/// Find the most recent log, get the slot, and then get the block number from the slot.
 async fn get_latest_block_in_contract(
     rpc_url: String,
     oracle_address_bytes: Address,
@@ -118,6 +119,7 @@ async fn main() -> Result<(), anyhow::Error> {
 
         let contract = EigenlayerBeaconOracle::new(oracle_address_bytes, client.clone());
 
+        // Get the block of the most recent update to the contract.
         let contract_curr_block =
             get_latest_block_in_contract(rpc_url.clone(), Address::from(oracle_address_bytes))
                 .await?;
@@ -131,18 +133,18 @@ async fn main() -> Result<(), anyhow::Error> {
         );
 
         // Get contract_curr_block + block_interval - (contract_curr_block % block_interval)
-        let block_to_request =
+        let block_nb_to_request =
             contract_curr_block + block_interval - (contract_curr_block % block_interval);
 
         // To avoid RPC stability issues, we use a block number 5 blocks behind the current block.
-        if block_to_request < latest_block.as_u64() - 5 {
+        if block_nb_to_request < latest_block.as_u64() - 5 {
             debug!(
                 "Attempting to add timestamp of block {} to contract",
-                block_to_request
+                block_nb_to_request
             );
 
             // Check if interval_block_nb is stored in the contract.
-            let interval_block = client.get_block(block_to_request).await?;
+            let interval_block = client.get_block(block_nb_to_request).await?;
             let interval_block_timestamp = interval_block.unwrap().timestamp;
             let interval_beacon_block_root = contract
                 .timestamp_to_block_root(interval_block_timestamp)
@@ -168,7 +170,7 @@ async fn main() -> Result<(), anyhow::Error> {
                 if let Some(tx) = tx {
                     info!(
                         "Added block {:?} to the contract! Transaction: {:?}",
-                        block_to_request, tx.transaction_hash
+                        block_nb_to_request, tx.transaction_hash
                     );
                 }
             }
