@@ -3,10 +3,10 @@ use ethers::{
     contract::abigen,
     middleware::SignerMiddleware,
     providers::{Http, Middleware, Provider},
-    signers::{LocalWallet, Signer},
     types::TransactionReceipt,
     utils::hex,
 };
+use ethers_aws::aws_signer::AWSSigner;
 use std::{env, str::FromStr, sync::Arc};
 
 // Generates the contract bindings for the EigenlayerBeaconOracle contract.
@@ -48,6 +48,20 @@ async fn get_latest_block_in_contract(
     }
 }
 
+async fn create_aws_signer() -> AWSSigner {
+    let access_key = std::env::var("ACCESS_KEY").expect("ACCESS_KEY must be in environment");
+    let secret_access_key =
+        std::env::var("SECRET_ACCESS_KEY").expect("SECRET_ACCESS_KEY must be in environment");
+    let key_id: String = std::env::var("KEY_ID").expect("KEY_ID must be in environment");
+    let region = std::env::var("REGION").expect("REGION must be in environment");
+    let chain_id = std::env::var("CHAIN_ID").expect("CHAIN_ID must be in environment");
+    let chain_id = u64::from_str(&chain_id).expect("CHAIN_ID must be a number");
+    let aws_signer = AWSSigner::new(chain_id, access_key, secret_access_key, key_id, region)
+        .await
+        .expect("Cannot create AWS signer");
+    aws_signer
+}
+
 /// The main function that runs the application.
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
@@ -58,12 +72,6 @@ async fn main() -> Result<(), anyhow::Error> {
 
     let rpc_url = env::var("RPC_URL")?;
 
-    let private_key = Some(env::var("PRIVATE_KEY").expect("PRIVATE_KEY must be set"));
-    let wallet = LocalWallet::from_str(private_key.as_ref().unwrap()).expect("invalid private key");
-
-    let chain_id = env::var("CHAIN_ID")?;
-    let chain_id = u64::from_str(&chain_id)?;
-
     let contract_address = env::var("CONTRACT_ADDRESS")?;
     let oracle_address_bytes: [u8; 20] = hex::decode(contract_address).unwrap().try_into().unwrap();
 
@@ -72,9 +80,9 @@ async fn main() -> Result<(), anyhow::Error> {
         let provider =
             Provider::<Http>::try_from(rpc_url.clone()).expect("could not connect to client");
 
-        let wallet = wallet.clone().with_chain_id(chain_id);
+        let signer = create_aws_signer().await;
 
-        let client = Arc::new(SignerMiddleware::new(provider, wallet.clone()));
+        let client = Arc::new(SignerMiddleware::new(provider, signer));
 
         let contract = EigenlayerBeaconOracle::new(oracle_address_bytes, client.clone());
 

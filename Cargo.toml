@@ -8,3 +8,4 @@ anyhow = "1.0.80"
 tokio = { version = "1", features = ["full"] }
 dotenv = "0.15.0"
 ethers = "2.0.13"
+ethers_aws = "0.1.0"
