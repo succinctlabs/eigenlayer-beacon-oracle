@@ -33,7 +33,7 @@ async fn get_latest_block_in_contract(
     let latest_block = provider.get_block_number().await?;
 
     let mut curr_block = latest_block;
-    while curr_block > curr_block - MAX_DISTANCE_TO_FILL {
+    while curr_block > latest_block - MAX_DISTANCE_TO_FILL {
         let range_start_block = std::cmp::max(curr_block - MAX_DISTANCE_TO_FILL, curr_block - 500);
         // Filter for the events in chunks.
         let filter = Filter::new()
@@ -119,16 +119,19 @@ async fn main() -> Result<(), anyhow::Error> {
 
         let contract = EigenlayerBeaconOracle::new(oracle_address_bytes, client.clone());
 
+        let latest_block = client.get_block_number().await?;
+
+        // If this is the first time the operator is running, we need to start from the latest_block - block_interval.
+        let default_start_block = latest_block.as_u64() - (block_interval * 2);
+
         // Get the block of the most recent update to the contract.
         let contract_curr_block =
             get_latest_block_in_contract(rpc_url.clone(), Address::from(oracle_address_bytes))
-                .await?;
-
-        // Check if latest_block + block_interval is less than the current block number.
-        let latest_block = client.get_block_number().await?;
+                .await
+                .unwrap_or(default_start_block);
 
         debug!(
-            "The contract's current latest update is from block: {} and Goerli's latest block is: {}. Difference: {}",
+            "The contract's current latest update is from block: {} and the chain's latest block is: {}. Difference: {}",
             contract_curr_block, latest_block, latest_block - contract_curr_block
         );
 
