@@ -90,7 +90,7 @@ async fn create_aws_signer() -> AWSSigner {
     aws_signer
 }
 
-/// The main function that runs the application.
+/// The operator for the EigenlayerBeaconOracle contract.
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
     env::set_var("RUST_LOG", "debug");
