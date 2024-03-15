@@ -31,3 +31,9 @@ $ cargo run --release
 ```
 
 Make sure to set the enviroment variables in `.env` before running the script.
+
+## Cost
+To compute the cost of requesting beacon block roots over the past month, run the following command:
+
+```shell
+cargo run --bin cost <START_BLOCK> <END_BLOCK> -- --nocapture
