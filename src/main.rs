@@ -55,7 +55,7 @@ async fn get_latest_block_in_contract(
     None
 }
 
-/// If contract_curr_block is None we need to set a default start_block, otherwise return contract_curr_block + block_interval.
+/// If contract_curr_block is None, set a default start_block. Otherwise, return contract_curr_block + block_interval.
 fn get_block_to_request(
     contract_curr_block: Option<u64>,
     block_interval: u64,
