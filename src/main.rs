@@ -1,12 +1,14 @@
+use alloy_sol_types::{sol, SolType};
 use anyhow::Result;
 use ethers::{
     contract::abigen,
     middleware::SignerMiddleware,
     providers::{Http, Middleware, Provider},
-    types::{Address, Filter, TransactionReceipt, U64},
+    types::{Address, Filter, TransactionReceipt, U256, U64},
     utils::hex,
 };
 use ethers_aws::aws_signer::AWSSigner;
+use log::{debug, error, info};
 use std::{env, str::FromStr, sync::Arc};
 
 // Generates the contract bindings for the EigenlayerBeaconOracle contract.
@@ -16,7 +18,9 @@ abigen!(
 );
 
 // Maximum number of blocks to search backwards for (1 day of blocks).
-const MAX_DISTANCE_TO_FILL: u64 = 7200;
+const MAX_DISTANCE_TO_FILL: u64 = 8191;
+
+type EigenLayerBeaconOracleUpdate = sol! { tuple(uint256, uint256, bytes32) };
 
 /// Asynchronously gets the latest block in the contract.
 async fn get_latest_block_in_contract(
@@ -40,7 +44,28 @@ async fn get_latest_block_in_contract(
         let logs = provider.get_logs(&filter).await?;
         // Return the most recent block number from the logs (if any).
         if logs.len() > 0 {
-            return Ok(logs[0].block_number.unwrap().as_u64());
+            let log_bytes = &logs[0].data.0;
+            let decoded = EigenLayerBeaconOracleUpdate::abi_decode(log_bytes, true).unwrap();
+
+            let slot: U256 = U256::from_little_endian(&decoded.0.as_le_bytes());
+
+            let consensus_rpc_url = env::var("CONSENSUS_RPC")?;
+            let response = reqwest::get(format!(
+                "{}/eth/v1/beacon/blocks/{}",
+                consensus_rpc_url,
+                slot.as_u64()
+            ))
+            .await?;
+
+            // Get the execution block number for a specific slot.
+            let json: serde_json::Value = serde_json::from_str(&response.text().await?).unwrap();
+            let block_number = json["data"]["message"]["body"]["execution_payload"]["block_number"]
+                .as_str()
+                .unwrap_or("0")
+                .parse::<u64>()
+                .unwrap();
+
+            return Ok(block_number);
         }
 
         curr_block -= U64::from(500u64);
@@ -68,7 +93,9 @@ async fn create_aws_signer() -> AWSSigner {
 /// The main function that runs the application.
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
+    env::set_var("RUST_LOG", "debug");
     dotenv::dotenv().ok();
+    env_logger::init();
 
     let block_interval = env::var("BLOCK_INTERVAL")?;
     let block_interval = u64::from_str(&block_interval)?;
@@ -91,27 +118,29 @@ async fn main() -> Result<(), anyhow::Error> {
 
         let contract_curr_block =
             get_latest_block_in_contract(rpc_url.clone(), Address::from(oracle_address_bytes))
-                .await
-                .unwrap();
+                .await?;
 
         // Check if latest_block + block_interval is less than the current block number.
         let latest_block = client.get_block_number().await?;
 
-        println!(
+        debug!(
             "The contract's current latest update is from block: {} and Goerli's latest block is: {}. Difference: {}",
             contract_curr_block, latest_block, latest_block - contract_curr_block
         );
 
+        // Get contract_curr_block + block_interval - (contract_curr_block % block_interval)
+        let block_to_request =
+            contract_curr_block + block_interval - (contract_curr_block % block_interval);
+
         // To avoid RPC stability issues, we use a block number 5 blocks behind the current block.
-        if contract_curr_block + block_interval < latest_block.as_u64() - 5 {
-            println!(
+        if block_to_request < latest_block.as_u64() - 5 {
+            debug!(
                 "Attempting to add timestamp of block {} to contract",
-                contract_curr_block + block_interval
+                block_to_request
             );
-            let interval_block_nb = contract_curr_block + block_interval;
 
             // Check if interval_block_nb is stored in the contract.
-            let interval_block = client.get_block(interval_block_nb).await?;
+            let interval_block = client.get_block(block_to_request).await?;
             let interval_block_timestamp = interval_block.unwrap().timestamp;
             let interval_beacon_block_root = contract
                 .timestamp_to_block_root(interval_block_timestamp)
@@ -123,17 +152,26 @@ async fn main() -> Result<(), anyhow::Error> {
                 let tx: Option<TransactionReceipt> = contract
                     .add_timestamp(interval_block_timestamp)
                     .send()
-                    .await?
-                    .await?;
+                    .await
+                    .map_err(|e| {
+                        error!("Failed to add timestamp: {}", e);
+                        e
+                    })?
+                    .await
+                    .map_err(|e| {
+                        error!("Failed to send tx: {}", e);
+                        e
+                    })?;
 
                 if let Some(tx) = tx {
-                    println!(
+                    info!(
                         "Added block {:?} to the contract! Transaction: {:?}",
-                        interval_block_nb, tx.transaction_hash
+                        block_to_request, tx.transaction_hash
                     );
                 }
             }
         }
+        debug!("Sleeping for 1 minute");
         // Sleep for 1 minute.
         let _ = tokio::time::sleep(tokio::time::Duration::from_secs((60) as u64)).await;
     }
