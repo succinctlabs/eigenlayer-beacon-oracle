@@ -43,9 +43,10 @@ async fn get_latest_block_in_contract(
 
         let logs = provider.get_logs(&filter).await?;
         // Return the most recent block number from the logs (if any).
-        if logs.len() > 0 {
-            let log_bytes = &logs[0].data.0;
-            let decoded = EigenLayerBeaconOracleUpdate::abi_decode(log_bytes, true).unwrap();
+        let most_recent_log = logs.iter().max_by_key(|log| log.block_number);
+        if let Some(most_recent_log) = most_recent_log {
+            let log_bytes = &most_recent_log.data.0;
+            let decoded = EigenLayerBeaconOracleUpdate::abi_decode(&log_bytes, true).unwrap();
 
             let slot: U256 = U256::from_little_endian(&decoded.0.as_le_bytes());
 
