@@ -3,7 +3,7 @@ use ethers::{
     contract::abigen,
     middleware::SignerMiddleware,
     providers::{Http, Middleware, Provider},
-    types::TransactionReceipt,
+    types::{Address, Filter, TransactionReceipt, U64},
     utils::hex,
 };
 use ethers_aws::aws_signer::AWSSigner;
@@ -20,32 +20,35 @@ const MAX_DISTANCE_TO_FILL: u64 = 7200;
 
 /// Asynchronously gets the latest block in the contract.
 async fn get_latest_block_in_contract(
-    latest_block: u64,
-    block_interval: u64,
     rpc_url: String,
-    oracle_address_bytes: [u8; 20],
+    oracle_address_bytes: Address,
 ) -> Result<u64> {
     let provider =
         Provider::<Http>::try_from(rpc_url.clone()).expect("could not connect to client");
-    let contract = EigenlayerBeaconOracle::new(oracle_address_bytes, provider.clone().into());
+    let latest_block = provider.get_block_number().await?;
 
-    let mut curr_block_number = latest_block - (latest_block % block_interval);
-    loop {
-        if curr_block_number < latest_block - MAX_DISTANCE_TO_FILL {
-            return Ok(curr_block_number);
-        }
-        let curr_block = provider.get_block(curr_block_number).await?;
-        let curr_block_timestamp = curr_block.unwrap().timestamp;
-        let curr_block_root = contract
-            .timestamp_to_block_root(curr_block_timestamp)
-            .call()
-            .await?;
+    let mut curr_block = latest_block;
+    while curr_block > curr_block - MAX_DISTANCE_TO_FILL {
+        let range_start_block = std::cmp::max(curr_block - MAX_DISTANCE_TO_FILL, curr_block - 500);
+        // Filter for the events in chunks.
+        let filter = Filter::new()
+            .from_block(range_start_block)
+            .to_block(curr_block)
+            .address(vec![oracle_address_bytes])
+            .event("EigenLayerBeaconOracleUpdate(uint256,uint256,bytes32)");
 
-        if curr_block_root != [0u8; 32] {
-            return Ok(curr_block_number);
+        let logs = provider.get_logs(&filter).await?;
+        // Return the most recent block number from the logs (if any).
+        if logs.len() > 0 {
+            return Ok(logs[0].block_number.unwrap().as_u64());
         }
-        curr_block_number -= block_interval;
+
+        curr_block -= U64::from(500u64);
     }
+
+    Err(anyhow::Error::msg(
+        "Could not find the latest block in the contract",
+    ))
 }
 
 async fn create_aws_signer() -> AWSSigner {
@@ -86,17 +89,13 @@ async fn main() -> Result<(), anyhow::Error> {
 
         let contract = EigenlayerBeaconOracle::new(oracle_address_bytes, client.clone());
 
+        let contract_curr_block =
+            get_latest_block_in_contract(rpc_url.clone(), Address::from(oracle_address_bytes))
+                .await
+                .unwrap();
+
         // Check if latest_block + block_interval is less than the current block number.
         let latest_block = client.get_block_number().await?;
-
-        let contract_curr_block = get_latest_block_in_contract(
-            latest_block.as_u64(),
-            block_interval,
-            rpc_url.clone(),
-            oracle_address_bytes,
-        )
-        .await
-        .unwrap();
 
         println!(
             "The contract's current latest update is from block: {} and Goerli's latest block is: {}. Difference: {}",
