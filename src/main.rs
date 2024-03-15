@@ -60,7 +60,7 @@ fn get_block_to_request(
     block_interval: u64,
     latest_block: u64,
 ) -> u64 {
-    // If the contract's current block is None, we need to start from the latest block - block_interval.
+    // If the contract's current block is None, we need to set a default start_block.
     if contract_curr_block.is_none() {
         let default_start_block = latest_block - (latest_block % block_interval);
         debug!(
