@@ -38,4 +38,10 @@ To get the Ethereum block corresponding to a date, do the following:
 To compute the cost of requesting beacon block roots over the past month, run the following command:
 
 ```shell
-cargo run --bin cost <START_BLOCK> <END_BLOCK> -- --nocapture
+cargo run --bin cost -- --rpc-url <RPC_URL> --relayer-address <RELAYER_ADDRESS> --contract-address <CONTRACT_ADDRESS> --start-timestamp <START_TIMESTAMP> --end-timestamp <END_TIMESTAMP>
+```
+
+Ex. To get the total costs from relayer on Mainnet, run the following:
+```shell
+cargo run --bin cost -- --rpc-url <MAINNET_RPC_URL> --relayer-address 0x44eB418A966ff47f5AF6f48AEa6Afde0bf193a8d --contract-address 0x343907185b71adf0eba9567538314396aa985442 --start-timestamp 2024-03-01T00:00:00+00:00 --end-timestamp 2024-04-01T00:00:00+00:00
+```

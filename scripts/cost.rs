@@ -1,29 +1,68 @@
+use clap::Parser;
 use dotenv::dotenv;
 use ethers::prelude::*;
-use std::env;
 
-// Compute the total cost (ETH) of relaying all EigenlayerBeaconOracle to CONTRACT_ADDRESS over the period [start_block, end_block].
+#[derive(Parser, Debug, Clone)]
+#[command(
+    about = "Get the last block of the block range to fill and whether to post the data on-chain."
+)]
+pub struct FillBlockRangeArgs {
+    #[arg(long, required = true)]
+    pub rpc_url: String,
+    #[arg(long, required = true)]
+    pub relayer_address: String,
+    #[arg(long, required = true)]
+    pub contract_address: String,
+    #[arg(long, required = true)]
+    pub start_timestamp: String,
+    #[arg(long, required = true)]
+    pub end_timestamp: String,
+}
+
+// Searches for the nearest block number to the given timestamp.
+async fn get_block_from_timestamp_ethereum(timestamp: u64) -> anyhow::Result<u64> {
+    // Query https://coins.llama.fi/block/{chain}/{timestamp} to get the block number.
+    let response = reqwest::get(format!(
+        "https://coins.llama.fi/block/ethereum/{}",
+        timestamp
+    ))
+    .await?
+    .json::<serde_json::Value>()
+    .await?;
+
+    let block_number = response
+        .get("height")
+        .ok_or_else(|| anyhow::anyhow!("'height' field is missing in the response"))?
+        .as_u64()
+        .ok_or_else(|| anyhow::anyhow!("Failed to parse 'height' as u64"))?;
+    Ok(block_number)
+}
+
+// Compute the total cost (ETH) of relaying all EigenlayerBeaconOracle to CONTRACT_ADDRESS over the period [start_timestamp, end_timestamp].
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     dotenv().ok();
-    let rpc_url = env::var("RPC_URL").expect("RPC_URL must be set");
-    let relayer_address: Address = env::var("RELAYER_ADDRESS")
-        .expect("RELAYER_ADDRESS must be set")
-        .parse()?;
-    let contract_address: Address = env::var("CONTRACT_ADDRESS")
-        .expect("CONTRACT_ADDRESS must be set")
-        .parse()?;
+    let args = FillBlockRangeArgs::parse();
+
+    let rpc_url = args.rpc_url;
+    let relayer_address: Address = args.relayer_address.parse()?;
+    let contract_address: Address = args.contract_address.parse()?;
     let client = Provider::<Http>::try_from(rpc_url)?.with_sender(relayer_address);
 
-    // Read the block number using Clap parser in Rust
-    let args: Vec<String> = env::args().collect();
+    // Parse the start and end timestamps from datestring format into u64.
+    let start_timestamp_str = args.start_timestamp;
+    let end_timestamp_str = args.end_timestamp;
+    let start_timestamp =
+        chrono::DateTime::parse_from_rfc3339(&start_timestamp_str)?.timestamp() as u64;
+    let end_timestamp =
+        chrono::DateTime::parse_from_rfc3339(&end_timestamp_str)?.timestamp() as u64;
 
-    // Parse the second argument into i64.
-    let start_block_nb = args[1].parse::<u64>()?;
-    let end_block_nb = args[2].parse::<u64>()?;
+    let start_block_number = get_block_from_timestamp_ethereum(start_timestamp).await?;
+    let end_block_number = get_block_from_timestamp_ethereum(end_timestamp).await?;
 
-    let start_block: U64 = U64::from(start_block_nb);
-    let end_block: U64 = U64::from(end_block_nb);
+    // Convert timestamps to block numbers (This is a placeholder conversion. The actual conversion depends on the blockchain's block time and would likely involve querying the blockchain)
+    let start_block: U64 = U64::from(start_block_number); // Assuming 15 seconds per block
+    let end_block: U64 = U64::from(end_block_number);
 
     use std::fs::File;
     use std::io::Write;
