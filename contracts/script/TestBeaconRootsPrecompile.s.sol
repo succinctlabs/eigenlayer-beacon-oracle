@@ -9,13 +9,21 @@ contract TestBeaconRootsPrecompile is Script {
     function run() public returns (bytes32) {
         vm.createSelectFork("mainnet");
 
+        address BEACON_ROOTS = 0x000F3df6D732807Ef1319fB7B8bB8522d0Beac02;
+
         console.log(block.number);
 
-        uint64 _slot = 8822286;
-        EigenLayerBeaconOracle oracle = EigenLayerBeaconOracle(
-            0x343907185b71aDF0eBa9567538314396aa985442
+        // Sourced from: https://beaconcha.in/slot/8822288 (missing slot).
+        uint64 missingSlotTimestamp = 1712691479;
+
+        (bool success, bytes memory result) = BEACON_ROOTS.staticcall(
+            abi.encode(missingSlotTimestamp)
         );
-        bytes32 blockRoot = oracle.findBlockRoot(_slot);
-        return blockRoot;
+        console.logBool(success);
+        if (success && result.length > 0) {
+            return abi.decode(result, (bytes32));
+        }
+
+        return bytes32(0);
     }
 }
