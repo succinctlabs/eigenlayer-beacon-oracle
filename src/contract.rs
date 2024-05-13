@@ -1,35 +1,24 @@
 use anyhow::Result;
 use ethers::{
-    middleware::SignerMiddleware,
     providers::{Http, Middleware, Provider},
-    types::{
-        transaction::eip2718::TypedTransaction, Address, TransactionReceipt, TransactionRequest,
-    },
+    types::{transaction::eip2718::TypedTransaction, Address},
 };
-use ethers_aws::aws_signer::AWSSigner;
-
-use crate::signer::create_aws_signer;
-
 /// Wrapper of a `SignerMiddleware` client to send transactions to the given
 /// contract's `Address`.
 pub struct ContractClient {
     chain_id: u64,
-    client: SignerMiddleware<Provider<Http>, AWSSigner>,
+    provider: Provider<Http>,
     contract: Address,
 }
 
 impl ContractClient {
     /// Creates a new `ContractClient`.
-    pub async fn new(chain_id: u64, rpc_url: &str, contract: &str) -> Result<Self> {
+    pub async fn new(chain_id: u64, rpc_url: &str, contract: Address) -> Result<Self> {
         let provider = Provider::<Http>::try_from(rpc_url)?;
-
-        let signer = create_aws_signer(chain_id).await;
-        let client = SignerMiddleware::new(provider.clone(), signer);
-        let contract = contract.parse::<Address>()?;
 
         Ok(ContractClient {
             chain_id,
-            client,
+            provider,
             contract,
         })
     }
@@ -40,7 +29,7 @@ impl ContractClient {
         tx.set_chain_id(self.chain_id);
         tx.set_to(self.contract);
         tx.set_data(calldata.into());
-        let data = self.client.call(&tx, None).await?;
+        let data = self.provider.call(&tx, None).await?;
 
         Ok(data.to_vec())
     }
