@@ -15,7 +15,7 @@ pub async fn send_secure_kms_relay_request(
     // Create the relay request.
     let relay_request = RelayRequest {
         chain_id: chain_id as u64, // Assuming req.ChainID is of type uint32 and needs conversion
-        address: address.to_string(),
+        address: hex::encode(address.0),
         calldata: hex::encode(calldata),
         platform_request: false,
     };
