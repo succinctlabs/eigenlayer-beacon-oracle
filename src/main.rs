@@ -1,3 +1,4 @@
+use alloy_sol_types::sol;
 use anyhow::Result;
 use ethers::{
     contract::abigen,
@@ -11,10 +12,11 @@ use log::{debug, error, info};
 use std::{env, str::FromStr, sync::Arc};
 
 // Generates the contract bindings for the EigenlayerBeaconOracle contract.
-abigen!(
-    EigenlayerBeaconOracle,
-    "./abi/EigenlayerBeaconOracle.abi.json"
-);
+sol! {
+    function addTimestamp(uint256 _targetTimestamp);
+
+    function timestampToBlockRoot(uint256 _targetTimestamp) returns (bytes32);
+}
 
 // Maximum number of blocks to search backwards for (1 day of blocks).
 const MAX_DISTANCE_TO_FILL: u64 = 8191;
@@ -149,30 +151,24 @@ async fn main() -> Result<(), anyhow::Error> {
 
             // If the interval block is not in the contract, store it.
             if interval_beacon_block_root == [0; 32] {
-                let tx: Option<TransactionReceipt> = contract
+                let data = contract
                     .add_timestamp(interval_block_timestamp)
-                    .send()
+                    .call()
                     .await
-                    .map_err(|e| {
-                        error!("Failed to add timestamp: {}", e);
-                        e
-                    })?
-                    .await
-                    .map_err(|e| {
-                        error!("Failed to send tx: {}", e);
-                        e
-                    })?;
+                    .unwrap();
 
-                if let Some(tx) = tx {
-                    info!(
-                        "Added block {:?} to the contract! Transaction: {:?}",
-                        block_nb_to_request, tx.transaction_hash
-                    );
-                }
+                println!("Calldata for adding timestamp: {:?}", data);
+
+                // if let Some(tx) = tx {
+                //     info!(
+                //         "Added block {:?} to the contract! Transaction: {:?}",
+                //         block_nb_to_request, tx.transaction_hash
+                //     );
+                // }
             }
         }
         debug!("Sleeping for 1 minute");
-        // Sleep for 1 minute.
+        // Sleep for 5 minutes.
         let _ = tokio::time::sleep(tokio::time::Duration::from_secs((300) as u64)).await;
     }
 }
