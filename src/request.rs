@@ -22,12 +22,17 @@ pub async fn send_secure_kms_relay_request(
 
     // Read relayer endpoint from env
     let relayer_endpoint = env::var("SECURE_RELAYER_ENDPOINT").unwrap();
+    let api_key = env::var("SECURE_RELAYER_API_KEY").unwrap();
 
     // Send request to the Secure Production Relayer.
     let url = format!("{}/relay", relayer_endpoint);
-    println!("url: {}", url);
     let client = Client::new();
-    let res = client.post(&url).json(&relay_request).send().await?;
+    let res = client
+        .post(&url)
+        .bearer_auth(api_key)
+        .json(&relay_request)
+        .send()
+        .await?;
 
     // If the status is not 200, return an error.
     if res.status() != reqwest::StatusCode::OK {
