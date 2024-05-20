@@ -8,7 +8,7 @@ use eigenlayer_beacon_oracle::{
 use ethers::{
     middleware::SignerMiddleware,
     providers::{Http, Middleware, Provider},
-    signers::LocalWallet,
+    signers::{LocalWallet, Signer},
     types::{Address, NameOrAddress, TransactionRequest, H160, H256},
     utils::hex,
 };
@@ -129,18 +129,18 @@ async fn self_relay_data(
     oracle_address_bytes: [u8; 20],
 ) -> Result<H256> {
     let private_key: String = env::var("RELAYER_PRIVATE_KEY").unwrap();
-    let wallet = LocalWallet::from_str(&private_key).expect("invalid private key");
+    let wallet = LocalWallet::from_str(&private_key)
+        .expect("invalid private key")
+        .with_chain_id(chain_id);
 
-    println!("Client chain id: {}", provider.get_chainid().await?);
+    let client = Arc::new(SignerMiddleware::new(provider, wallet.clone()));
 
-    let client = Arc::new(SignerMiddleware::new(provider, wallet));
-
-    println!("Contract chain id: {}", chain_id);
     let tx = TransactionRequest {
         chain_id: Some(chain_id.into()),
         to: Some(NameOrAddress::Address(H160::from_slice(
             &oracle_address_bytes,
         ))),
+        from: Some(wallet.address()),
         data: Some(add_timestamp_calldata.into()),
         ..Default::default()
     };
