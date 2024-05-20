@@ -1,4 +1,5 @@
 use crate::types::{RelayRequest, RelayResponse};
+use anyhow::Result;
 use ethers::{
     types::{Address, H256},
     utils::hex,
@@ -6,12 +7,12 @@ use ethers::{
 use reqwest::Client;
 use std::{env, str::FromStr};
 
-/// Send a request to the Secure Production Relayer to relay a proof using the KMS wallet.
+/// Send a request to the Succinct Secure Production Relayer to relay a proof using the KMS wallet.
 pub async fn send_secure_kms_relay_request(
     calldata: Vec<u8>,
     chain_id: u64,
     address: Address,
-) -> Result<H256, Box<dyn std::error::Error>> {
+) -> Result<H256> {
     // Create the relay request.
     let relay_request = RelayRequest {
         chain_id: chain_id as u64, // Assuming req.ChainID is of type uint32 and needs conversion
@@ -36,9 +37,9 @@ pub async fn send_secure_kms_relay_request(
 
     // If the status is not 200, return an error.
     if res.status() != reqwest::StatusCode::OK {
-        return Err(Box::new(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            format!("server responded with status code: {}", res.status()),
+        return Err(anyhow::Error::msg(format!(
+            "server responded with status code: {}",
+            res.status()
         )));
     }
 
@@ -53,17 +54,19 @@ pub async fn send_secure_kms_relay_request(
             relay_resp
                 .transaction_hash
                 .as_ref()
-                .ok_or("Missing transaction hash")?,
+                .ok_or("Missing transaction hash")
+                .unwrap(),
         )?;
         Ok(tx_hash)
     } else {
-        Err(Box::new(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            format!(
-                "relay failed with status {}: {}",
-                relay_resp.status,
-                relay_resp.message.as_ref().ok_or("Missing error message")?
-            ),
+        Err(anyhow::Error::msg(format!(
+            "relay failed with status {}: {}",
+            relay_resp.status,
+            relay_resp
+                .message
+                .as_ref()
+                .ok_or("Missing error message")
+                .unwrap()
         )))
     }
 }

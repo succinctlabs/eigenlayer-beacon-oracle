@@ -6,18 +6,23 @@ use eigenlayer_beacon_oracle::{
     request::send_secure_kms_relay_request, timestampToBlockRootCall,
 };
 use ethers::{
+    middleware::SignerMiddleware,
     providers::{Http, Middleware, Provider},
-    types::Address,
+    signers::{LocalWallet, Signer},
+    types::{Address, NameOrAddress, TransactionRequest, H160, H256},
     utils::hex,
 };
 use log::{debug, error, info};
-use std::{env, str::FromStr};
+use std::{env, str::FromStr, sync::Arc};
 
 /// The operator for the EigenlayerBeaconOracle contract.
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
     dotenv::dotenv().ok();
     env_logger::init();
+
+    // If RELAYER_PRIVATE_KEY is set, the operator will relay the request to the contract directly.
+    let self_relay = env::var("RELAYER_PRIVATE_KEY").is_ok();
 
     let block_interval = env::var("BLOCK_INTERVAL")?;
     let block_interval = u64::from_str(&block_interval)?;
@@ -81,23 +86,69 @@ async fn main() -> Result<(), anyhow::Error> {
 
                 let add_timestamp_calldata = add_timestamp_call.abi_encode();
 
-                // Send request to the hosted relayer.
-                let res = send_secure_kms_relay_request(
-                    add_timestamp_calldata,
-                    chain_id,
-                    Address::from(oracle_address_bytes),
-                )
-                .await;
-
-                if let Err(e) = res {
-                    error!("Error sending request to relayer: {}", e);
+                let tx_hash = if self_relay {
+                    self_relay_data(
+                        provider,
+                        chain_id,
+                        add_timestamp_calldata,
+                        oracle_address_bytes,
+                    )
+                    .await
                 } else {
-                    info!("Sent request to relayer with tx hash {}", res.unwrap());
+                    send_secure_kms_relay_request(
+                        add_timestamp_calldata,
+                        chain_id,
+                        Address::from(oracle_address_bytes),
+                    )
+                    .await
+                };
+
+                if let Err(e) = tx_hash {
+                    error!("Transaction failed! {:?}", e);
+                } else if let Ok(tx_hash) = tx_hash {
+                    info!(
+                        "Relayed transaction: {:?} to {:?} on chain {:?}",
+                        tx_hash,
+                        Address::from(oracle_address_bytes),
+                        chain_id
+                    );
                 }
             }
         }
         debug!("Sleeping for 1 minute");
         // Sleep for 5 minutes.
         let _ = tokio::time::sleep(tokio::time::Duration::from_secs((300) as u64)).await;
+    }
+}
+
+/// Relay the transaction to the contract using the account defined by RELAYER_PRIVATE_KEY.
+async fn self_relay_data(
+    provider: Provider<Http>,
+    chain_id: u64,
+    add_timestamp_calldata: Vec<u8>,
+    oracle_address_bytes: [u8; 20],
+) -> Result<H256> {
+    let private_key: String = env::var("RELAYER_PRIVATE_KEY").unwrap();
+    let wallet = LocalWallet::from_str(&private_key)
+        .expect("invalid private key")
+        .with_chain_id(chain_id);
+
+    let client = Arc::new(SignerMiddleware::new(provider, wallet.clone()));
+
+    let tx = TransactionRequest {
+        chain_id: Some(chain_id.into()),
+        to: Some(NameOrAddress::Address(H160::from_slice(
+            &oracle_address_bytes,
+        ))),
+        from: Some(wallet.address()),
+        data: Some(add_timestamp_calldata.into()),
+        ..Default::default()
+    };
+    let tx = client.send_transaction(tx.clone(), None).await?.await?;
+    if let Some(tx) = tx {
+        let tx_hash = tx.transaction_hash;
+        Ok(tx_hash)
+    } else {
+        Err(anyhow::Error::msg("Transaction failed"))
     }
 }
