@@ -30,7 +30,7 @@ To run the script which periodically updates the oracle, run the following comma
 $ cargo run --release
 ```
 
-Make sure to set the enviroment variables in `.env` before running the script.
+Make sure to set the enviroment variables in `.env` before running the script. If you're planning to self-relay (not use the Succinct relayer), set RELAYER_PRIVATE_KEY in `.env`.
 
 ## Cost
 To get the Ethereum block corresponding to a date, do the following:
