@@ -103,13 +103,15 @@ async fn main() -> Result<(), anyhow::Error> {
                     .await
                 };
 
-                if let Ok(tx_hash) = tx_hash {
+                if let Err(e) = tx_hash {
+                    error!("Transaction failed! {:?}", e);
+                } else if let Ok(tx_hash) = tx_hash {
                     info!(
                         "Relayed transaction: {:?} to {:?} on chain {:?}",
-                        tx_hash, oracle_address_bytes, chain_id
+                        tx_hash,
+                        Address::from(oracle_address_bytes),
+                        chain_id
                     );
-                } else {
-                    error!("Transaction failed!");
                 }
             }
         }
@@ -129,8 +131,11 @@ async fn self_relay_data(
     let private_key: String = env::var("RELAYER_PRIVATE_KEY").unwrap();
     let wallet = LocalWallet::from_str(&private_key).expect("invalid private key");
 
+    println!("Client chain id: {}", provider.get_chainid().await?);
+
     let client = Arc::new(SignerMiddleware::new(provider, wallet));
 
+    println!("Contract chain id: {}", chain_id);
     let tx = TransactionRequest {
         chain_id: Some(chain_id.into()),
         to: Some(NameOrAddress::Address(H160::from_slice(
