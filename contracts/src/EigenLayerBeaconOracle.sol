@@ -25,7 +25,7 @@ contract EigenLayerBeaconOracle is IBeaconChainOracle {
     /// @notice Block timestamp does not correspond to a valid slot.
     error InvalidBlockTimestamp();
 
-    /// @notice Timestamp out of range for the the beacon roots precompile.
+    /// @notice Timestamp out of range for the beacon roots precompile.
     error TimestampOutOfRange();
 
     /// @notice No block root is found using the beacon roots precompile.
@@ -65,7 +65,7 @@ contract EigenLayerBeaconOracle is IBeaconChainOracle {
     /// @param _slot The slot to get the block root for.
     /// @return blockRoot The beacon block root of the given slot.
     /// @dev BEACON_ROOTS returns a block root for a given parent block's timestamp. To get the block root for slot
-    ///      N, you use the timestamp of slot N+1. If N+1 is not avaliable, you use the timestamp of slot N+2, and
+    ///      N, you use the timestamp of slot N+1. If N+1 is not available, you use the timestamp of slot N+2, and
     //       so on.
     function findBlockRoot(uint64 _slot) public view returns (bytes32 blockRoot) {
         uint256 currBlockTimestamp = GENESIS_BLOCK_TIMESTAMP + ((_slot + 1) * 12);
