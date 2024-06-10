@@ -24,7 +24,7 @@ $ forge script script/DeployEigenLayerBeaconOracle.s.sol:DeployEigenLayerBeaconO
 
 ## Operator Script
 
-Make sure to set the enviroment variables in `.env` before running the operator. If you're planning to self-relay (not use the Succinct relayer), set `RELAYER_PRIVATE_KEY` in `.env`.
+Make sure to set the environment variables in `.env` before running the operator. If you're planning to self-relay (not use the Succinct relayer), set `RELAYER_PRIVATE_KEY` in `.env`.
 
 To run the script which periodically updates the oracle, run the following command:
 
